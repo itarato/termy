@@ -26,5 +26,23 @@ int main(void)
 
     printf("Slave ownership and perms has been set. \n");
 
+    int unlockpt_result = unlockpt(pty_master_fd);
+    if (unlockpt_result == -1)
+    {
+        printf("Error: cannot unlock slave.\n");
+        return 3;
+    }
+
+    printf("Slave unlocked.\n");
+
+    char *slave_name = ptsname(pty_master_fd);
+    if (slave_name == nullptr)
+    {
+        printf("Error: cannot obtain slave name.\n");
+        return 4;
+    }
+
+    printf("Slave name: %s.\n", slave_name);
+
     return 0;
 }
