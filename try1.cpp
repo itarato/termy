@@ -11,7 +11,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-#define SLAVE_NAME_BUF_SIZE 64
+#define SLAVE_NAME_BUF_SIZE 512
 #define READ_BUF_SIZE 256
 
 using namespace std;
@@ -185,7 +185,10 @@ pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
 }
 
 static void tty_reset(void) {
+  printf("AtExit.\n");
+
   if (tcsetattr(STDIN_FILENO, TCSANOW, &tty_orig) == -1) {
+    printf("Error: failed resetting tty.\n");
     exit(EXIT_FAILURE);
   }
 }
@@ -225,7 +228,7 @@ int main(void) {
   }
 
   struct winsize current_tty_winsize;
-  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &current_tty_winsize) == -1) {
+  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &current_tty_winsize) < 0) {
     perror("Cannot get current tty winsize.\n");
     exit(EXIT_FAILURE);
   }
@@ -246,9 +249,11 @@ int main(void) {
       shell = "/bin/sh";
     }
 
+    printf("Child | Exec.\n");
     execlp(shell, shell, (char *)nullptr);
 
     // Should not get here in execution.
+    printf("Child | Fatal: should not get here in code.\n");
     exit(EXIT_FAILURE);
   }
 
@@ -258,14 +263,15 @@ int main(void) {
       open("try1_output", O_WRONLY | O_CREAT | O_TRUNC,
            S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
   if (script_fd == -1) {
-    perror("Error: cannot open output file.\n");
+    perror("Parent | Error: cannot open output file.\n");
     exit(EXIT_FAILURE);
   }
 
+  printf("Parent | Set tty raw.\n");
   tty_set_raw(STDIN_FILENO, &tty_orig);
 
   if (atexit(tty_reset) != 0) {
-    perror("Error: cannot set exit handler.\n");
+    perror("Parent | Error: cannot set exit handler.\n");
     exit(EXIT_FAILURE);
   }
 
@@ -279,19 +285,19 @@ int main(void) {
     FD_SET(master_pty_fd, &in_fds);
 
     if (select(master_pty_fd + 1, &in_fds, nullptr, nullptr, nullptr) == -1) {
-      perror("Error: select failed for changes.\n");
+      perror("Parent | Error: select failed for changes.\n");
       exit(EXIT_FAILURE);
     }
 
     if (FD_ISSET(STDIN_FILENO, &in_fds)) {  // STDIN --> PTY
       read_len = read(STDIN_FILENO, read_buf, READ_BUF_SIZE);
       if (read_len <= 0) {
-        printf("Error: expected STDIN to be readable.\n");
+        printf("Parent | Error: expected STDIN to be readable.\n");
         exit(EXIT_FAILURE);
       }
 
       if (write(master_pty_fd, read_buf, read_len) != read_len) {
-        printf("Error: invalid write len to master-pty-fd.\n");
+        printf("Parent | Error: invalid write len to master-pty-fd.\n");
         exit(EXIT_FAILURE);
       }
     }
@@ -299,16 +305,16 @@ int main(void) {
     if (FD_ISSET(master_pty_fd, &in_fds)) {  // PTY --> STDOUT + file
       read_len = read(master_pty_fd, read_buf, READ_BUF_SIZE);
       if (read_len <= 0) {
-        printf("Error: expected master-pty-fd to be readable.\n");
+        printf("Parent | Error: expected master-pty-fd to be readable.\n");
         exit(EXIT_FAILURE);
       }
 
       if (write(STDOUT_FILENO, read_buf, read_len) != read_len) {
-        printf("Error: invalid write len to stdout.\n");
+        printf("Parent | Error: invalid write len to stdout.\n");
         exit(EXIT_FAILURE);
       }
-      if (write(script_fd, read_buf, read_len) != read_len) {
-        printf("Error: invalid write len to script file.\n");
+      if (wr ite(script_fd, read_buf, read_len) != read_len) {
+        printf("Parent | Error: invalid write len to script file.\n");
         exit(EXIT_FAILURE);
       }
     }
