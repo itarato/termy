@@ -313,7 +313,7 @@ int main(void) {
         printf("Parent | Error: invalid write len to stdout.\n");
         exit(EXIT_FAILURE);
       }
-      if (wr ite(script_fd, read_buf, read_len) != read_len) {
+      if (write(script_fd, read_buf, read_len) != read_len) {
         printf("Parent | Error: invalid write len to script file.\n");
         exit(EXIT_FAILURE);
       }
