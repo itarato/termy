@@ -12,8 +12,11 @@
 #include <unistd.h>
 
 #define SLAVE_NAME_BUF_SIZE 64
+#define READ_BUF_SIZE 256
 
 using namespace std;
+
+struct termios tty_orig;
 
 int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
   int prev_errno;
@@ -78,7 +81,7 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
     return -1;
   }
 
-  strncpy(slave_name_buf, slave_name, slave_name_len);
+  strncpy(slave_name_buf, slave_name, slave_name_max_len);
 
   return pty_master_fd;
 }
@@ -95,15 +98,15 @@ pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
 
   if (slave_name != nullptr) {
     int slave_name_len = strlen(_slave_name_buf);
-    if (slave_name_max_len > slave_name_len) {
-      strncpy(slave_name, _slave_name_buf, slave_name_len);
-    } else {
-      printf("Error: cannot copy slave namem, too large.\n");
+    if (slave_name_max_len <= slave_name_len) {
+      printf("Error: cannot copy slave name, too large.\n");
 
       close(_master_pty_fd);
       errno = EOVERFLOW;
       return -1;
     }
+
+    strncpy(slave_name, _slave_name_buf, slave_name_max_len);
   }
 
   int prev_errno;
@@ -132,8 +135,9 @@ pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
   close(_master_pty_fd);
 
   // Becoming controlling tty.
-  int slave_pty_fd = open(slave_name, O_RDWR);
+  int slave_pty_fd = open(_slave_name_buf, O_RDWR);
   if (slave_pty_fd == -1) {
+    printf("Slave file: %s\n", _slave_name_buf);
     perror("Error: cannot open slave file.\n");
     exit(EXIT_FAILURE);
   }
@@ -180,4 +184,135 @@ pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
   return 0;
 }
 
-int main(void) { return 0; }
+static void tty_reset(void) {
+  if (tcsetattr(STDIN_FILENO, TCSANOW, &tty_orig) == -1) {
+    exit(EXIT_FAILURE);
+  }
+}
+
+int tty_set_raw(int fd, struct termios *prev_termios) {
+  struct termios t;
+
+  if (tcgetattr(fd, &t) == -1) {
+    printf("Error: cannot get tty config.\n");
+    return -1;
+  }
+
+  if (prev_termios != nullptr) {
+    *prev_termios = t;
+  }
+
+  t.c_lflag &= ~(ICANON | ISIG | IEXTEN | ECHO);
+  t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP |
+                 IXON | PARMRK);
+
+  t.c_oflag &= ~OPOST;
+
+  t.c_cc[VMIN] = 1;
+  t.c_cc[VTIME] = 0;
+
+  if (tcsetattr(fd, TCSAFLUSH, &t) == -1) {
+    return -1;
+  }
+
+  return 0;
+}
+
+int main(void) {
+  if (tcgetattr(STDIN_FILENO, &tty_orig) == -1) {
+    perror("Cannot fetch current tty settings.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  struct winsize current_tty_winsize;
+  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &current_tty_winsize) == -1) {
+    perror("Cannot get current tty winsize.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int master_pty_fd;
+  char slave_name[SLAVE_NAME_BUF_SIZE];
+  pid_t child_pid = pty_fork(&master_pty_fd, slave_name, SLAVE_NAME_BUF_SIZE,
+                             &tty_orig, &current_tty_winsize);
+  if (child_pid == -1) {
+    perror("Error: cannot fork.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  char const *shell;
+  if (child_pid == 0) {  // Child.
+    shell = getenv("SHELL");
+    if (shell == nullptr || *shell == '\0') {
+      shell = "/bin/sh";
+    }
+
+    execlp(shell, shell, (char *)nullptr);
+
+    // Should not get here in execution.
+    exit(EXIT_FAILURE);
+  }
+
+  // Parent process.
+
+  int script_fd =
+      open("try1_output", O_WRONLY | O_CREAT | O_TRUNC,
+           S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+  if (script_fd == -1) {
+    perror("Error: cannot open output file.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  tty_set_raw(STDIN_FILENO, &tty_orig);
+
+  if (atexit(tty_reset) != 0) {
+    perror("Error: cannot set exit handler.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  fd_set in_fds;
+  size_t read_len;
+  char read_buf[READ_BUF_SIZE];
+
+  for (;;) {
+    FD_ZERO(&in_fds);
+    FD_SET(STDIN_FILENO, &in_fds);
+    FD_SET(master_pty_fd, &in_fds);
+
+    if (select(master_pty_fd + 1, &in_fds, nullptr, nullptr, nullptr) == -1) {
+      perror("Error: select failed for changes.\n");
+      exit(EXIT_FAILURE);
+    }
+
+    if (FD_ISSET(STDIN_FILENO, &in_fds)) {  // STDIN --> PTY
+      read_len = read(STDIN_FILENO, read_buf, READ_BUF_SIZE);
+      if (read_len <= 0) {
+        printf("Error: expected STDIN to be readable.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      if (write(master_pty_fd, read_buf, read_len) != read_len) {
+        printf("Error: invalid write len to master-pty-fd.\n");
+        exit(EXIT_FAILURE);
+      }
+    }
+
+    if (FD_ISSET(master_pty_fd, &in_fds)) {  // PTY --> STDOUT + file
+      read_len = read(master_pty_fd, read_buf, READ_BUF_SIZE);
+      if (read_len <= 0) {
+        printf("Error: expected master-pty-fd to be readable.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      if (write(STDOUT_FILENO, read_buf, read_len) != read_len) {
+        printf("Error: invalid write len to stdout.\n");
+        exit(EXIT_FAILURE);
+      }
+      if (write(script_fd, read_buf, read_len) != read_len) {
+        printf("Error: invalid write len to script file.\n");
+        exit(EXIT_FAILURE);
+      }
+    }
+  }
+
+  return 0;
+}
