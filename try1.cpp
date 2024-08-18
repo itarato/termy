@@ -2,6 +2,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,10 +15,51 @@
 
 #define SLAVE_NAME_BUF_SIZE 512
 #define READ_BUF_SIZE 256
+#define DEBUG_BUF_SIZE 1024
+#define DBG(...) debug(__FILE__, __LINE__, __VA_ARGS__)
 
 using namespace std;
 
 struct termios tty_orig;
+
+void debug(const char *file_name, int line_no, const char *msg, ...) {
+  int f = open("pty.log", O_CREAT | O_APPEND | O_WRONLY,
+               S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+  if (f == -1) {
+    perror("Error: cannot open debug file.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int fmt_len;
+
+  va_list args;
+  va_start(args, msg);
+
+  char fmt_buf[DEBUG_BUF_SIZE];
+  const char *debug_fmt = "[debug] %s\n";
+  fmt_len = snprintf(fmt_buf, DEBUG_BUF_SIZE, debug_fmt, msg);
+  if (fmt_len >= DEBUG_BUF_SIZE) {
+    printf("Error: debug fmt buffer overflow.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  char buf[DEBUG_BUF_SIZE];
+
+  int len = vsnprintf(buf, DEBUG_BUF_SIZE, fmt_buf, args);
+  if (len >= DEBUG_BUF_SIZE) {
+    printf("Error: debug buffer overflow.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  if (write(f, buf, strlen(buf)) == -1) {
+    perror("Error: cannot write to debug file.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  va_end(args);
+
+  close(f);
+}
 
 int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
   int prev_errno;
@@ -219,6 +262,36 @@ int tty_set_raw(int fd, struct termios *prev_termios) {
   return 0;
 }
 
+void sig_winch(int sig_no, siginfo_t *info, void *context) {
+  DBG("Signal: %u.", sig_no);
+
+  if (sig_no == SIGWINCH) {
+    struct winsize ws;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1) {
+      perror("Error: failed reading winsize.\n");
+      exit(EXIT_FAILURE);
+    }
+
+    DBG("Winsize: %u x %u.", ws.ws_row, ws.ws_col);
+  }
+}
+
+void setup_signal_handlers() {
+  struct sigaction sa {
+    0
+  };
+
+  sa.sa_flags = 0;
+  sa.sa_sigaction = &sig_winch;
+
+  if (sigaction(SIGWINCH, &sa, nullptr) == -1) {
+    perror("Error: cannot set signal handlers.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  DBG("Signal handlers set.");
+}
+
 int main(void) {
   if (tcgetattr(STDIN_FILENO, &tty_orig) == -1) {
     perror("Cannot fetch current tty settings.\n");
@@ -272,6 +345,8 @@ int main(void) {
     exit(EXIT_FAILURE);
   }
 
+  setup_signal_handlers();
+
   fd_set in_fds;
   ssize_t read_len;
   char read_buf[READ_BUF_SIZE];
@@ -281,9 +356,15 @@ int main(void) {
     FD_SET(STDIN_FILENO, &in_fds);
     FD_SET(master_pty_fd, &in_fds);
 
-    if (select(master_pty_fd + 1, &in_fds, nullptr, nullptr, nullptr) == -1) {
-      perror("Parent | Error: select failed for changes.\n");
-      exit(EXIT_FAILURE);
+    for (;;) {
+      if (select(master_pty_fd + 1, &in_fds, nullptr, nullptr, nullptr) == -1) {
+        if (errno == EINTR) continue;
+
+        perror("Parent | Error: select failed for changes.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      break;
     }
     // printf("Parent | Select fired.\n");
 
