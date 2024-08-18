@@ -185,8 +185,6 @@ pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
 }
 
 static void tty_reset(void) {
-  printf("AtExit.\n");
-
   if (tcsetattr(STDIN_FILENO, TCSANOW, &tty_orig) == -1) {
     printf("Error: failed resetting tty.\n");
     exit(EXIT_FAILURE);
@@ -249,7 +247,6 @@ int main(void) {
       shell = "/bin/sh";
     }
 
-    printf("Child | Exec.\n");
     execlp(shell, shell, (char *)nullptr);
 
     // Should not get here in execution.
@@ -276,7 +273,7 @@ int main(void) {
   }
 
   fd_set in_fds;
-  size_t read_len;
+  ssize_t read_len;
   char read_buf[READ_BUF_SIZE];
 
   for (;;) {
@@ -288,12 +285,14 @@ int main(void) {
       perror("Parent | Error: select failed for changes.\n");
       exit(EXIT_FAILURE);
     }
+    // printf("Parent | Select fired.\n");
 
     if (FD_ISSET(STDIN_FILENO, &in_fds)) {  // STDIN --> PTY
       read_len = read(STDIN_FILENO, read_buf, READ_BUF_SIZE);
+      // printf("Parent | Select on STDIN: %d.\n", read_len);
+
       if (read_len <= 0) {
-        printf("Parent | Error: expected STDIN to be readable.\n");
-        exit(EXIT_FAILURE);
+        exit(EXIT_SUCCESS);
       }
 
       if (write(master_pty_fd, read_buf, read_len) != read_len) {
@@ -304,9 +303,10 @@ int main(void) {
 
     if (FD_ISSET(master_pty_fd, &in_fds)) {  // PTY --> STDOUT + file
       read_len = read(master_pty_fd, read_buf, READ_BUF_SIZE);
+      // printf("Parent | Select on master- pty: %d.\n", read_len);
+
       if (read_len <= 0) {
-        printf("Parent | Error: expected master-pty-fd to be readable.\n");
-        exit(EXIT_FAILURE);
+        exit(EXIT_SUCCESS);
       }
 
       if (write(STDOUT_FILENO, read_buf, read_len) != read_len) {
