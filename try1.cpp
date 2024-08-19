@@ -305,14 +305,23 @@ void setup_signal_handlers() {
   DBG("Signal handlers set.");
 }
 
-int write_with_line_numbers(int fd, char *buf) {
+int write_with_line_numbers(int fd, char *buf, int buf_len) {
   int i = 0;
-  char *buf_start = buf;
-  const int buf_len = strlen(buf);
+  int start_i = 0;
 
   while (i < buf_len) {
     if (*(buf + i) == '\n') {
       DBG("Found newline.");
+
+      if (i + 1 < buf_len && *(buf + i + 1) == '\r') i++;
+
+      int write_len = i - start_i + 1;
+      if (write(fd, buf + start_i, write_len) != write_len) {
+        printf("Parent | Error: invalid write len to script file.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      start_i = i + 1;
     }
     i++;
   }
@@ -422,11 +431,11 @@ int main(void) {
         printf("Parent | Error: invalid write len to stdout.\n");
         exit(EXIT_FAILURE);
       }
-      write_with_line_numbers(script_fd, read_buf);
-      if (write(script_fd, read_buf, read_len) != read_len) {
-        printf("Parent | Error: invalid write len to script file.\n");
-        exit(EXIT_FAILURE);
-      }
+      write_with_line_numbers(script_fd, read_buf, read_len);
+      // if (write(script_fd, read_buf, read_len) != read_len) {
+      //   printf("Parent | Error: invalid write len to script file.\n");
+      //   exit(EXIT_FAILURE);
+      // }
     }
   }
 
