@@ -21,6 +21,7 @@
 using namespace std;
 
 struct termios tty_orig;
+int global_master_pty_fd;
 
 void debug(const char *file_name, int line_no, const char *msg, ...) {
   int f = open("pty.log", O_CREAT | O_APPEND | O_WRONLY,
@@ -69,6 +70,12 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
   if (pty_master_fd == -1) {
     printf("Error: cannot create master PTY.\n");
     return -1;
+  }
+
+  global_master_pty_fd = dup(pty_master_fd);
+  if (global_master_pty_fd == -1) {
+    perror("Error: cannot dup master pty fd.\n");
+    exit(EXIT_FAILURE);
   }
 
   printf("Master PTY has been created, FD: %d.\n", pty_master_fd);
@@ -273,6 +280,11 @@ void sig_winch(int sig_no, siginfo_t *info, void *context) {
     }
 
     DBG("Winsize: %u x %u.", ws.ws_row, ws.ws_col);
+
+    if (ioctl(global_master_pty_fd, TIOCSWINSZ, &ws) == -1) {
+      perror("Error: failed setting winsize for master pty.\n");
+      exit(EXIT_FAILURE);
+    }
   }
 }
 
