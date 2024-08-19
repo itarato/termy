@@ -37,8 +37,9 @@ void debug(const char *file_name, int line_no, const char *msg, ...) {
   va_start(args, msg);
 
   char fmt_buf[DEBUG_BUF_SIZE];
-  const char *debug_fmt = "[debug] %s\n";
-  fmt_len = snprintf(fmt_buf, DEBUG_BUF_SIZE, debug_fmt, msg);
+  const char *debug_fmt = "[\x1b[93m%s\x1b[39m:\x1b[96m%d\x1b[0m] %s\n";
+  fmt_len =
+      snprintf(fmt_buf, DEBUG_BUF_SIZE, debug_fmt, file_name, line_no, msg);
   if (fmt_len >= DEBUG_BUF_SIZE) {
     printf("Error: debug fmt buffer overflow.\n");
     exit(EXIT_FAILURE);
@@ -404,6 +405,11 @@ int main(void) {
 
       if (write(STDOUT_FILENO, read_buf, read_len) != read_len) {
         printf("Parent | Error: invalid write len to stdout.\n");
+        exit(EXIT_FAILURE);
+      }
+
+      if (write(script_fd, " 16: ", 5) != 5) {
+        printf("Parent | Error: invalid write len to script file.\n");
         exit(EXIT_FAILURE);
       }
       if (write(script_fd, read_buf, read_len) != read_len) {
