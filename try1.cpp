@@ -305,6 +305,21 @@ void setup_signal_handlers() {
   DBG("Signal handlers set.");
 }
 
+int write_with_line_numbers(int fd, char *buf) {
+  int i = 0;
+  char *buf_start = buf;
+  const int buf_len = strlen(buf);
+
+  while (i < buf_len) {
+    if (*(buf + i) == '\n') {
+      DBG("Found newline.");
+    }
+    i++;
+  }
+
+  return 0;
+}
+
 int main(void) {
   if (tcgetattr(STDIN_FILENO, &tty_orig) == -1) {
     perror("Cannot fetch current tty settings.\n");
@@ -407,11 +422,7 @@ int main(void) {
         printf("Parent | Error: invalid write len to stdout.\n");
         exit(EXIT_FAILURE);
       }
-
-      if (write(script_fd, " 16: ", 5) != 5) {
-        printf("Parent | Error: invalid write len to script file.\n");
-        exit(EXIT_FAILURE);
-      }
+      write_with_line_numbers(script_fd, read_buf);
       if (write(script_fd, read_buf, read_len) != read_len) {
         printf("Parent | Error: invalid write len to script file.\n");
         exit(EXIT_FAILURE);
