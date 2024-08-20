@@ -305,7 +305,8 @@ void setup_signal_handlers() {
   DBG("Signal handlers set.");
 }
 
-int write_with_line_numbers(int fd, char *buf, int buf_len) {
+// FIXME: Pre-prompt empty lines are an issue. Not sure how to get rid of them.
+int write_with_line_numbers(int fd, char *buf, int buf_len, int *counter) {
   int i = 0;
   int start_i = 0;
 
@@ -321,9 +322,26 @@ int write_with_line_numbers(int fd, char *buf, int buf_len) {
         exit(EXIT_FAILURE);
       }
 
+      char number_buf[8];
+      sprintf(number_buf, "%  3d: ", *counter);
+      int number_buf_len = strlen(number_buf);
+      if (write(fd, number_buf, number_buf_len) != number_buf_len) {
+        printf("Error: failed writing number prefix.\n");
+        exit(EXIT_FAILURE);
+      }
+      (*counter)++;
+
       start_i = i + 1;
     }
     i++;
+  }
+
+  int last_write_len = i - start_i;
+  if (last_write_len > 0 && start_i < buf_len) {
+    if (write(fd, buf + start_i, last_write_len) != last_write_len) {
+      printf("Parent | Error: invalid write len to script file.\n");
+      exit(EXIT_FAILURE);
+    }
   }
 
   return 0;
@@ -387,6 +405,7 @@ int main(void) {
   fd_set in_fds;
   ssize_t read_len;
   char read_buf[READ_BUF_SIZE];
+  int counter = 0;
 
   for (;;) {
     FD_ZERO(&in_fds);
@@ -410,7 +429,7 @@ int main(void) {
       // printf("Parent | Select on STDIN: %d.\n", read_len);
 
       if (read_len <= 0) {
-        exit(EXIT_SUCCESS);
+        break;
       }
 
       if (write(master_pty_fd, read_buf, read_len) != read_len) {
@@ -424,20 +443,31 @@ int main(void) {
       // printf("Parent | Select on master- pty: %d.\n", read_len);
 
       if (read_len <= 0) {
-        exit(EXIT_SUCCESS);
+        break;
       }
 
       if (write(STDOUT_FILENO, read_buf, read_len) != read_len) {
         printf("Parent | Error: invalid write len to stdout.\n");
         exit(EXIT_FAILURE);
       }
-      write_with_line_numbers(script_fd, read_buf, read_len);
-      // if (write(script_fd, read_buf, read_len) != read_len) {
-      //   printf("Parent | Error: invalid write len to script file.\n");
-      //   exit(EXIT_FAILURE);
-      // }
+
+#ifdef CONF_WITH_LINE_NUMBERS
+      write_with_line_numbers(script_fd, read_buf, read_len, &counter);
+#else
+      if (write(script_fd, read_buf, read_len) != read_len) {
+        printf("Parent | Error: invalid write len to script file.\n");
+        exit(EXIT_FAILURE);
+      }
+#endif
     }
   }
 
-  return 0;
+  const char *bye_msg = "The End.\n";
+  const int bye_msg_len = strlen(bye_msg);
+  if (write(script_fd, bye_msg, bye_msg_len) != bye_msg_len) {
+    printf("Parent | Error: invalid write len to script file.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  exit(EXIT_SUCCESS);
 }
