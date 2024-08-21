@@ -308,48 +308,6 @@ void setup_signal_handlers() {
   DBG("Signal handlers set.");
 }
 
-// FIXME: Pre-prompt empty lines are an issue. Not sure how to get rid of them.
-int write_with_line_numbers(int fd, char *buf, int buf_len, int *counter) {
-  int i = 0;
-  int start_i = 0;
-
-  while (i < buf_len) {
-    if (*(buf + i) == '\n') {
-      DBG("Found newline.");
-
-      if (i + 1 < buf_len && *(buf + i + 1) == '\r') i++;
-
-      int write_len = i - start_i + 1;
-      if (write(fd, buf + start_i, write_len) != write_len) {
-        printf("Parent | Error: invalid write len to script file.\n");
-        exit(EXIT_FAILURE);
-      }
-
-      char number_buf[8];
-      sprintf(number_buf, "%  3d: ", *counter);
-      int number_buf_len = strlen(number_buf);
-      if (write(fd, number_buf, number_buf_len) != number_buf_len) {
-        printf("Error: failed writing number prefix.\n");
-        exit(EXIT_FAILURE);
-      }
-      (*counter)++;
-
-      start_i = i + 1;
-    }
-    i++;
-  }
-
-  int last_write_len = i - start_i;
-  if (last_write_len > 0 && start_i < buf_len) {
-    if (write(fd, buf + start_i, last_write_len) != last_write_len) {
-      printf("Parent | Error: invalid write len to script file.\n");
-      exit(EXIT_FAILURE);
-    }
-  }
-
-  return 0;
-}
-
 int main(void) {
   if (tcgetattr(STDIN_FILENO, &tty_orig) == -1) {
     perror("Cannot fetch current tty settings.\n");
@@ -408,7 +366,6 @@ int main(void) {
   fd_set in_fds;
   ssize_t read_len;
   char read_buf[READ_BUF_SIZE];
-  int counter = 0;
 
   for (;;) {
     FD_ZERO(&in_fds);
@@ -454,14 +411,10 @@ int main(void) {
         exit(EXIT_FAILURE);
       }
 
-#ifdef CONF_WITH_LINE_NUMBERS
-      write_with_line_numbers(script_fd, read_buf, read_len, &counter);
-#else
       if (write(script_fd, read_buf, read_len) != read_len) {
         printf("Parent | Error: invalid write len to script file.\n");
         exit(EXIT_FAILURE);
       }
-#endif
     }
   }
 
