@@ -394,11 +394,11 @@ int main(void) {
     exit(EXIT_FAILURE);
   }
 
-  DBG("Parent | Set tty raw.\n");
+  DBG("Set tty raw.\n");
   tty_set_raw(STDIN_FILENO, &tty_orig);
 
   if (atexit(tty_reset) != 0) {
-    perror("Parent | Error: cannot set exit handler.\n");
+    perror("Error: cannot set exit handler.\n");
     exit(EXIT_FAILURE);
   }
 
