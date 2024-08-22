@@ -38,8 +38,7 @@ struct termios tty_orig;
 int global_master_pty_fd;
 
 void debug(const char *file_name, int line_no, const char *msg, ...) {
-  int f = open("pty.log", O_CREAT | O_APPEND | O_WRONLY,
-               S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+  int f = open("pty.log", O_CREAT | O_APPEND | O_WRONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
   FAIL_IF_WITH_CODE(f == -1, "Cannot open debug file");
 
   int fmt_len;
@@ -49,8 +48,7 @@ void debug(const char *file_name, int line_no, const char *msg, ...) {
 
   char fmt_buf[DEBUG_BUF_SIZE];
   const char *debug_fmt = "[\x1b[93m%s\x1b[39m:\x1b[96m%d\x1b[0m] %s\n";
-  fmt_len =
-      snprintf(fmt_buf, DEBUG_BUF_SIZE, debug_fmt, file_name, line_no, msg);
+  fmt_len = snprintf(fmt_buf, DEBUG_BUF_SIZE, debug_fmt, file_name, line_no, msg);
   FAIL_IF(fmt_len >= DEBUG_BUF_SIZE, "Debug fmt buffer overflow.");
 
   char buf[DEBUG_BUF_SIZE];
@@ -58,8 +56,7 @@ void debug(const char *file_name, int line_no, const char *msg, ...) {
   int len = vsnprintf(buf, DEBUG_BUF_SIZE, fmt_buf, args);
   FAIL_IF(len >= DEBUG_BUF_SIZE, "Debug buffer overflow.");
 
-  FAIL_IF_WITH_CODE(write(f, buf, strlen(buf)) == -1,
-                    "Cannot write to debug file");
+  FAIL_IF_WITH_CODE(write(f, buf, strlen(buf)) == -1, "Cannot write to debug file");
 
   va_end(args);
 
@@ -82,7 +79,7 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
     exit(EXIT_FAILURE);
   }
 
-  printf("Master PTY has been created, FD: %d.\n", pty_master_fd);
+  DBG("Master PTY has been created, FD: %d.\n", pty_master_fd);
 
   // Change slave ownership and permission.
   int grantpt_result = grantpt(pty_master_fd);
@@ -96,7 +93,7 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
     return -1;
   }
 
-  printf("Slave ownership and perms has been set. \n");
+  DBG("Slave ownership and perms has been set. \n");
 
   int unlockpt_result = unlockpt(pty_master_fd);
   if (unlockpt_result == -1) {
@@ -109,7 +106,7 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
     return -1;
   }
 
-  printf("Slave unlocked.\n");
+  DBG("Slave unlocked.\n");
 
   char *slave_name = ptsname(pty_master_fd);
   if (slave_name == nullptr) {
@@ -122,12 +119,11 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
     return -1;
   }
 
-  printf("Slave name: %s.\n", slave_name);
+  DBG("Slave name: %s.\n", slave_name);
 
   int slave_name_len = strlen(slave_name);
   if (slave_name_len >= slave_name_max_len) {
-    printf("Error: slave name is too large (%d), cannot fit into %d bytes.\n",
-           slave_name_len, slave_name_max_len);
+    printf("Error: slave name is too large (%d), cannot fit into %d bytes.\n", slave_name_len, slave_name_max_len);
 
     close(pty_master_fd);
     errno = EOVERFLOW;
@@ -140,8 +136,7 @@ int open_master_pty(char *slave_name_buf, int slave_name_max_len) {
   return pty_master_fd;
 }
 
-pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
-               const struct termios *slave_termios,
+pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len, const struct termios *slave_termios,
                const struct winsize *slave_winsize) {
   char _slave_name_buf[SLAVE_NAME_BUF_SIZE];
   int _master_pty_fd = open_master_pty(_slave_name_buf, SLAVE_NAME_BUF_SIZE);
@@ -191,7 +186,7 @@ pid_t pty_fork(int *master_pty_fd, char *slave_name, size_t slave_name_max_len,
   // Becoming controlling tty.
   int slave_pty_fd = open(_slave_name_buf, O_RDWR);
   if (slave_pty_fd == -1) {
-    printf("Slave file: %s\n", _slave_name_buf);
+    DBG("Slave file: %s\n", _slave_name_buf);
     perror("Error: cannot open slave file.\n");
     exit(EXIT_FAILURE);
   }
@@ -258,8 +253,7 @@ int tty_set_raw(int fd, struct termios *prev_termios) {
   }
 
   t.c_lflag &= ~(ICANON | ISIG | IEXTEN | ECHO);
-  t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP |
-                 IXON | PARMRK);
+  t.c_iflag &= ~(BRKINT | ICRNL | IGNBRK | IGNCR | INLCR | INPCK | ISTRIP | IXON | PARMRK);
 
   t.c_oflag &= ~OPOST;
 
@@ -308,12 +302,7 @@ void setup_signal_handlers() {
   DBG("Signal handlers set.");
 }
 
-int main(void) {
-  if (tcgetattr(STDIN_FILENO, &tty_orig) == -1) {
-    perror("Cannot fetch current tty settings.\n");
-    exit(EXIT_FAILURE);
-  }
-
+int start_pty(int pipe_reader) {
   struct winsize current_tty_winsize;
   if (ioctl(STDIN_FILENO, TIOCGWINSZ, &current_tty_winsize) < 0) {
     perror("Cannot get current tty winsize.\n");
@@ -322,8 +311,7 @@ int main(void) {
 
   int master_pty_fd;
   char slave_name[SLAVE_NAME_BUF_SIZE];
-  pid_t child_pid = pty_fork(&master_pty_fd, slave_name, SLAVE_NAME_BUF_SIZE,
-                             &tty_orig, &current_tty_winsize);
+  pid_t child_pid = pty_fork(&master_pty_fd, slave_name, SLAVE_NAME_BUF_SIZE, &tty_orig, &current_tty_winsize);
   if (child_pid == -1) {
     perror("Error: cannot fork.\n");
     exit(EXIT_FAILURE);
@@ -345,22 +333,6 @@ int main(void) {
 
   // Parent process.
 
-  int script_fd =
-      open("output", O_WRONLY | O_CREAT | O_TRUNC,
-           S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-  if (script_fd == -1) {
-    perror("Parent | Error: cannot open output file.\n");
-    exit(EXIT_FAILURE);
-  }
-
-  printf("Parent | Set tty raw.\n");
-  tty_set_raw(STDIN_FILENO, &tty_orig);
-
-  if (atexit(tty_reset) != 0) {
-    perror("Parent | Error: cannot set exit handler.\n");
-    exit(EXIT_FAILURE);
-  }
-
   setup_signal_handlers();
 
   fd_set in_fds;
@@ -369,7 +341,7 @@ int main(void) {
 
   for (;;) {
     FD_ZERO(&in_fds);
-    FD_SET(STDIN_FILENO, &in_fds);
+    FD_SET(pipe_reader, &in_fds);
     FD_SET(master_pty_fd, &in_fds);
 
     for (;;) {
@@ -384,8 +356,8 @@ int main(void) {
     }
     // printf("Parent | Select fired.\n");
 
-    if (FD_ISSET(STDIN_FILENO, &in_fds)) {  // STDIN --> PTY
-      read_len = read(STDIN_FILENO, read_buf, READ_BUF_SIZE);
+    if (FD_ISSET(pipe_reader, &in_fds)) {  // STDIN --> PTY
+      read_len = read(pipe_reader, read_buf, READ_BUF_SIZE);
       // printf("Parent | Select on STDIN: %d.\n", read_len);
 
       if (read_len <= 0) {
@@ -410,20 +382,61 @@ int main(void) {
         printf("Parent | Error: invalid write len to stdout.\n");
         exit(EXIT_FAILURE);
       }
-
-      if (write(script_fd, read_buf, read_len) != read_len) {
-        printf("Parent | Error: invalid write len to script file.\n");
-        exit(EXIT_FAILURE);
-      }
     }
   }
 
-  const char *bye_msg = "The End.\n";
-  const int bye_msg_len = strlen(bye_msg);
-  if (write(script_fd, bye_msg, bye_msg_len) != bye_msg_len) {
-    printf("Parent | Error: invalid write len to script file.\n");
+  exit(EXIT_SUCCESS);
+}
+
+int main(void) {
+  if (tcgetattr(STDIN_FILENO, &tty_orig) == -1) {
+    perror("Cannot fetch current tty settings.\n");
     exit(EXIT_FAILURE);
   }
 
-  exit(EXIT_SUCCESS);
+  DBG("Parent | Set tty raw.\n");
+  tty_set_raw(STDIN_FILENO, &tty_orig);
+
+  if (atexit(tty_reset) != 0) {
+    perror("Parent | Error: cannot set exit handler.\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int pipe_rw[2];
+  if (pipe(pipe_rw) == -1) {
+    perror("Failed pipe.");
+    exit(EXIT_FAILURE);
+  }
+
+  int child_pid = fork();
+  if (child_pid == -1) {
+    perror("Master fork.");
+    exit(EXIT_FAILURE);
+  }
+
+  if (child_pid == 0) {  // Child
+    close(pipe_rw[1]);
+    start_pty(pipe_rw[0]);
+  }
+
+  close(pipe_rw[0]);
+
+  char buf[READ_BUF_SIZE];
+  int read_len;
+  for (;;) {
+    read_len = read(STDIN_FILENO, buf, READ_BUF_SIZE);
+    if (read_len == -1) {
+      perror("Cannot read main STDIN.");
+      exit(EXIT_FAILURE);
+    }
+
+    if (write(pipe_rw[1], buf, read_len) != read_len) {
+      printf("Error: write error to pipe.\n");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  // Hitting ^[D keeps the process hanging. I think it's because the pty master is not getting a 0 read from pipe -
+  // which would prompt it to `exit`.
+  // Maybe: setup a SIGINT handler and close the pipe?
 }
